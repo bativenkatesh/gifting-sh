@@ -25,6 +25,12 @@ import {
   Rating,
   useMediaQuery,
   Collapse,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Alert,
+  CircularProgress,
 } from '@mui/material';
 import {
   ShoppingBagOutlined,
@@ -39,6 +45,7 @@ import {
   Instagram,
   Facebook,
   Pinterest,
+  PersonOutlineOutlined,
 } from '@mui/icons-material';
 
 // Define the custom Earthy theme
@@ -183,6 +190,17 @@ const Home: React.FC = () => {
   const [activeStep, setActiveStep] = useState(0);
   const [selectedBoxSize, setSelectedBoxSize] = useState<string | null>(null);
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
+  const [authOpen, setAuthOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<'signup' | 'login'>('signup');
+  const [authName, setAuthName] = useState('');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [currentUser, setCurrentUser] = useState<{ name: string; email: string } | null>(() => {
+    const savedUser = localStorage.getItem('gifting-sh-user');
+    return savedUser ? JSON.parse(savedUser) : null;
+  });
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
   const handleAddToCart = () => {
@@ -199,6 +217,37 @@ const Home: React.FC = () => {
     setSelectedBoxSize(null);
     setSelectedItems([]);
     setActiveStep(0);
+  };
+
+  const handleAuthSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setAuthError('');
+    setAuthLoading(true);
+
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/v1/auth/${authMode}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: authName, email: authEmail, password: authPassword }),
+      });
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error?.message || 'Authentication failed.');
+      }
+
+      localStorage.setItem('gifting-sh-token', result.data.token);
+      localStorage.setItem('gifting-sh-user', JSON.stringify(result.data.user));
+      setCurrentUser(result.data.user);
+      setAuthOpen(false);
+      setAuthName('');
+      setAuthEmail('');
+      setAuthPassword('');
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : 'Authentication failed.');
+    } finally {
+      setAuthLoading(false);
+    }
   };
 
   return (
@@ -305,6 +354,14 @@ const Home: React.FC = () => {
               <IconButton color="inherit" aria-label="Favorites" sx={{ display: { xs: 'none', sm: 'inline-flex' } }}>
                 <FavoriteBorderOutlined />
               </IconButton>
+              <Button
+                color="inherit"
+                startIcon={<PersonOutlineOutlined />}
+                onClick={() => { setAuthError(''); setAuthMode(currentUser ? 'login' : 'signup'); setAuthOpen(true); }}
+                sx={{ minWidth: 0, px: 1, display: { xs: 'none', sm: 'inline-flex' } }}
+              >
+                {currentUser?.name || 'Account'}
+              </Button>
               <IconButton color="inherit" aria-label="Cart" onClick={handleAddToCart}>
                 <Badge badgeContent={cartCount} color="primary" sx={{ '& .MuiBadge-badge': { borderRadius: '50%' } }}>
                   <ShoppingBagOutlined />
@@ -364,12 +421,60 @@ const Home: React.FC = () => {
           ))}
         </List>
         <Divider sx={{ my: 3 }} />
+        <Button
+          variant="contained"
+          startIcon={<PersonOutlineOutlined />}
+          onClick={() => { setMobileMenuOpen(false); setAuthError(''); setAuthMode(currentUser ? 'login' : 'signup'); setAuthOpen(true); }}
+          fullWidth
+          sx={{ mt: 2 }}
+        >
+          {currentUser?.name || 'Sign up / Log in'}
+        </Button>
         <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2, mt: 'auto' }}>
           <IconButton color="secondary"><Instagram /></IconButton>
           <IconButton color="secondary"><Facebook /></IconButton>
           <IconButton color="secondary"><Pinterest /></IconButton>
         </Box>
       </Drawer>
+
+      <Dialog
+        open={authOpen}
+        onClose={() => !authLoading && setAuthOpen(false)}
+        fullWidth
+        maxWidth="xs"
+        slotProps={{ paper: { sx: { borderRadius: 0, p: 1 } } }}
+      >
+        <form onSubmit={handleAuthSubmit}>
+          <DialogTitle sx={{ fontFamily: '"Cormorant Garamond", serif', fontSize: '2rem', pb: 1 }}>
+            {authMode === 'signup' ? 'Join the circle' : 'Welcome back'}
+          </DialogTitle>
+          <DialogContent>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+              {authMode === 'signup' ? 'Create an account to keep your favorite gifts close.' : 'Sign in to continue your gifting journey.'}
+            </Typography>
+            {authError && <Alert severity="error" sx={{ mb: 2 }}>{authError}</Alert>}
+            {authMode === 'signup' && (
+              <TextField label="Full name" value={authName} onChange={(event) => setAuthName(event.target.value)} fullWidth required autoFocus margin="normal" />
+            )}
+            <TextField label="Email address" type="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} fullWidth required margin="normal" autoFocus={authMode === 'login'} />
+            <TextField label="Password" type="password" value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} fullWidth required slotProps={{ htmlInput: { minLength: 8 } }} margin="normal" helperText="At least 8 characters" />
+          </DialogContent>
+          <DialogActions sx={{ px: 3, pb: 2, display: 'block' }}>
+            <Button type="submit" variant="contained" fullWidth disabled={authLoading} sx={{ mb: 2 }}>
+              {authLoading ? <CircularProgress size={22} color="inherit" /> : authMode === 'signup' ? 'Create account' : 'Sign in'}
+            </Button>
+            <Button
+              type="button"
+              variant="text"
+              fullWidth
+              disabled={authLoading}
+              onClick={() => { setAuthError(''); setAuthMode(authMode === 'signup' ? 'login' : 'signup'); }}
+            >
+              {authMode === 'signup' ? 'Already have an account? Sign in' : 'New here? Create an account'}
+            </Button>
+          </DialogActions>
+        </form>
+      </Dialog>
 
       {/* 3. HERO SECTION */}
       <Box

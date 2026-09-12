@@ -1,3 +1,31 @@
+# Gifting SH backend
+
+## Development
+
+```bash
+npm install
+npm run dev
+```
+
+The server checks the Neon PostgreSQL connection with Sequelize before it starts
+listening. Set `DATABASE_URL` and `JWT_SECRET` in `.env.local` or `.env`.
+
+## Authentication API
+
+`POST /api/v1/auth/signup`
+
+```json
+{ "name": "Ada Lovelace", "email": "ada@example.com", "password": "at-least-8-characters" }
+```
+
+`POST /api/v1/auth/login`
+
+```json
+{ "email": "ada@example.com", "password": "at-least-8-characters" }
+```
+
+Both endpoints return a JWT and the public user profile. Password hashes are
+never included in responses.
 # Gifting SH Backend
 
 Express API foundation following an MVC structure.
