@@ -1,15 +1,15 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { UniqueConstraintError, ValidationError } = require('sequelize');
 const env = require('../config/env');
-const User = require('../models/user.model');
+const { findUserByEmail, createUser } = require('../data/inMemoryStore');
+const User = env.databaseUrl && env.nodeEnv !== 'test' ? require('../models/user.model') : null;
 
 function createToken(user) {
-  return jwt.sign({ sub: user.id, email: user.email }, env.jwtSecret, { expiresIn: '7d' });
+  return jwt.sign({ sub: user.id, email: user.email, role: user.role || 'user' }, env.jwtSecret, { expiresIn: '7d' });
 }
 
 function publicUser(user) {
-  return { id: user.id, name: user.name, email: user.email };
+  return { id: user.id, name: user.name, email: user.email, role: user.role || 'user' };
 }
 
 async function signup(req, res, next) {
@@ -25,17 +25,20 @@ async function signup(req, res, next) {
       });
     }
 
+    const existingUser = User
+      ? await User.findOne({ where: { email } })
+      : findUserByEmail(email);
+    if (existingUser) {
+      return res.status(409).json({ success: false, error: { message: 'An account with that email already exists.' } });
+    }
+
     const passwordHash = await bcrypt.hash(password, 12);
-    const user = await User.create({ name, email, passwordHash });
+    const user = User
+      ? await User.create({ name, email, passwordHash, role: 'user' })
+      : createUser({ name, email, passwordHash, role: 'user' });
 
     return res.status(201).json({ success: true, data: { token: createToken(user), user: publicUser(user) } });
   } catch (error) {
-    if (error instanceof UniqueConstraintError) {
-      return res.status(409).json({ success: false, error: { message: 'An account with that email already exists.' } });
-    }
-    if (error instanceof ValidationError) {
-      return res.status(400).json({ success: false, error: { message: 'Please enter a valid name and email.' } });
-    }
     return next(error);
   }
 }
@@ -44,9 +47,11 @@ async function login(req, res, next) {
   try {
     const email = typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
     const password = typeof req.body.password === 'string' ? req.body.password : '';
-    const user = await User.unscoped().findOne({ where: { email } });
+    const user = User
+      ? await User.scope(null).findOne({ where: { email } })
+      : findUserByEmail(email);
 
-    if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
+    if (!user || user.isActive === false || !(await bcrypt.compare(password, user.passwordHash))) {
       return res.status(401).json({ success: false, error: { message: 'Email or password is incorrect.' } });
     }
 
