@@ -29,7 +29,7 @@ import { useAuth } from '../../context/AuthContext';
 
 export const Navbar: React.FC = () => {
   const { totalItems, openCart } = useCart();
-  const { user, logout, openAuthModal } = useAuth();
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const theme = useTheme();
@@ -291,13 +291,15 @@ export const Navbar: React.FC = () => {
                   </Menu>
                 </>
               ) : (
-                <IconButton
-                  onClick={openAuthModal}
-                  aria-label="Atelier Membership"
-                  sx={{ color: '#1C1917', p: 1 }}
-                >
-                  <PersonOutlined />
-                </IconButton>
+                isMobile ? (
+                  <IconButton onClick={() => navigate('/login')} aria-label="Sign in" sx={{ color: '#1C1917', p: 1 }}>
+                    <PersonOutlined />
+                  </IconButton>
+                ) : (
+                  <Button onClick={() => navigate('/login')} startIcon={<PersonOutlined />} sx={{ color: '#1C1917', fontFamily: '"Cinzel", serif', letterSpacing: '.1em' }}>
+                    Sign in
+                  </Button>
+                )
               )}
 
               {/* Cart Drawer Button */}
@@ -409,7 +411,7 @@ export const Navbar: React.FC = () => {
               variant="contained"
               onClick={() => {
                 setMobileMenuOpen(false);
-                openAuthModal();
+                navigate('/login');
               }}
             >
               Sign In to Atelier
