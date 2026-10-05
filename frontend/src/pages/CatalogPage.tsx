@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Box,
   Container,
@@ -18,7 +18,7 @@ import {
   useMediaQuery,
 } from '@mui/material';
 import { SearchOutlined, ShoppingBagOutlined, VisibilityOutlined } from '@mui/icons-material';
-import { products } from '../data/products';
+import { products as fallbackProducts } from '../data/products';
 import type { Product } from '../types';
 import { useCart } from '../context/CartContext';
 import { QuickViewModal } from '../components/catalog/QuickViewModal';
@@ -50,9 +50,40 @@ export const CatalogPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'curated' | 'price-asc' | 'price-desc'>('curated');
   const [quickViewProduct, setQuickViewProduct] = useState<Product | null>(null);
+  const [catalogProducts, setCatalogProducts] = useState<Product[]>(fallbackProducts);
+
+  useEffect(() => {
+    let active = true;
+    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+    fetch(`${apiUrl}/api/v1/products`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Catalog API is unavailable.');
+        const result = await response.json();
+        if (!result.success || !Array.isArray(result.data?.products)) throw new Error('Invalid catalog response.');
+        return result.data.products as Array<Record<string, unknown>>;
+      })
+      .then((apiProducts) => {
+        if (!active) return;
+        const normalized = apiProducts.map((product) => ({
+          ...product,
+          tagline: String(product.tagline || ''),
+          category: String(product.category || 'Heirloom Boxes') as Product['category'],
+          occasion: String(product.occasion || 'Milestone Celebrations') as Product['occasion'],
+          image: String(product.image || '/hero_gifting.jpg'),
+          description: String(product.description || ''),
+          provenance: String(product.provenance || ''),
+          contents: Array.isArray(product.contents) ? product.contents.map(String) : [],
+        })) as Product[];
+        setCatalogProducts(normalized);
+      })
+      .catch(() => {
+        // Keep bundled products available if the API is offline.
+      });
+    return () => { active = false; };
+  }, []);
 
   const filteredProducts = useMemo(() => {
-    return products
+    return catalogProducts
       .filter((product) => {
         const matchesCategory =
           selectedCategory === 'All Collections' || product.category === selectedCategory;
@@ -69,7 +100,7 @@ export const CatalogPage: React.FC = () => {
         if (sortBy === 'price-desc') return b.price - a.price;
         return 0; // curated order
       });
-  }, [selectedCategory, selectedOccasion, searchQuery, sortBy]);
+  }, [catalogProducts, selectedCategory, selectedOccasion, searchQuery, sortBy]);
 
   return (
     <Box sx={{ backgroundColor: '#FAF8F5', minHeight: '85vh', pb: 12 }}>

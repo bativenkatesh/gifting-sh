@@ -4,22 +4,20 @@ export interface User {
   id: string;
   name: string;
   email: string;
+  role?: 'user' | 'admin';
 }
 
 interface AuthContextType {
   user: User | null;
   token: string | null;
-  login: (email: string, password: string) => Promise<{ success: boolean; message?: string }>;
-  signup: (name: string, email: string, password: string) => Promise<{ success: boolean; message?: string }>;
+  login: (email: string, password: string) => Promise<{ success: boolean; message?: string; user?: User }>;
+  signup: (name: string, email: string, password: string) => Promise<{ success: boolean; message?: string; user?: User }>;
   logout: () => void;
-  isAuthModalOpen: boolean;
-  openAuthModal: () => void;
-  closeAuthModal: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(() => {
@@ -34,8 +32,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [token, setToken] = useState<string | null>(() => {
     return localStorage.getItem('maison_lotus_token') || null;
   });
-
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
   useEffect(() => {
     if (user && token) {
@@ -65,8 +61,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       setUser(data.data.user);
       setToken(data.data.token);
-      setIsAuthModalOpen(false);
-      return { success: true };
+      return { success: true, user: data.data.user };
     } catch (err: any) {
       return {
         success: false,
@@ -94,8 +89,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       setUser(data.data.user);
       setToken(data.data.token);
-      setIsAuthModalOpen(false);
-      return { success: true };
+      return { success: true, user: data.data.user };
     } catch (err: any) {
       return {
         success: false,
@@ -109,9 +103,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setToken(null);
   };
 
-  const openAuthModal = () => setIsAuthModalOpen(true);
-  const closeAuthModal = () => setIsAuthModalOpen(false);
-
   return (
     <AuthContext.Provider
       value={{
@@ -120,9 +111,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         login,
         signup,
         logout,
-        isAuthModalOpen,
-        openAuthModal,
-        closeAuthModal,
       }}
     >
       {children}
