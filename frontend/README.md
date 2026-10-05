@@ -7,9 +7,15 @@ Run the backend and frontend development servers, then open
 admin host includes overview, orders, catalog, inventory, customers, and store
 settings sections. Regular storefront pages remain on `http://localhost:5173`.
 
-Admin product changes are fetched from the API catalog by the storefront.
-Products and orders currently use in-memory backend collections; the admin
-settings are stored in Postgres when `DATABASE_URL` is configured.
+The storefront includes checkout/order history, saved addresses, wishlist,
+reviews, newsletter signup, and account recovery. Admin users can manage
+catalog, stock, coupons, review moderation, store settings, and order tracking.
+Commerce records persist in Postgres when `DATABASE_URL` is configured; the API
+falls back to memory for local development/tests.
+
+The frontend uses Vite 8 and requires Node.js 20.19+ or 22.12+. Run
+`npm run build` to typecheck and create a production build. `npm run lint` runs
+Oxlint. API behavior is covered by `cd ../backend && npm test`.
 
 This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
 

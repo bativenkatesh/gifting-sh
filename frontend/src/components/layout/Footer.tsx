@@ -1,17 +1,33 @@
 import React, { useState } from 'react';
-import { Container, Grid, Box, Typography, TextField, Button, Divider, IconButton } from '@mui/material';
+import { Alert, Container, Grid, Box, Typography, TextField, Button, Divider, IconButton } from '@mui/material';
 import { Instagram, Facebook, Pinterest, ArrowForward } from '@mui/icons-material';
+import { Link } from 'react-router-dom';
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 export const Footer: React.FC = () => {
   const [email, setEmail] = useState('');
   const [subscribed, setSubscribed] = useState(false);
+  const [subscribeError, setSubscribeError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleSubscribe = (e: React.FormEvent) => {
+  const handleSubscribe = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (email) {
+    setSubmitting(true);
+    setSubscribeError('');
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/newsletter/subscribe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error?.message || 'Subscription could not be saved.');
       setSubscribed(true);
       setEmail('');
-    }
+    } catch (error) {
+      setSubscribeError(error instanceof Error ? error.message : 'Subscription could not be saved.');
+    } finally { setSubmitting(false); }
   };
 
   return (
@@ -241,11 +257,13 @@ export const Footer: React.FC = () => {
             ) : (
               <Box component="form" onSubmit={handleSubscribe} sx={{ display: 'flex' }}>
                 <TextField
+                  type="email"
                   placeholder="Your preferred email"
                   variant="outlined"
                   size="small"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                  required
                   fullWidth
                   sx={{
                     '& .MuiOutlinedInput-root': {
@@ -272,6 +290,7 @@ export const Footer: React.FC = () => {
                 <Button
                   type="submit"
                   variant="contained"
+                  disabled={submitting}
                   sx={{
                     backgroundColor: '#B89758',
                     color: '#161413',
@@ -288,6 +307,7 @@ export const Footer: React.FC = () => {
                 </Button>
               </Box>
             )}
+            {subscribeError && <Alert severity="error" sx={{ mt: 1 }}>{subscribeError}</Alert>}
           </Grid>
         </Grid>
 
@@ -315,18 +335,14 @@ export const Footer: React.FC = () => {
           </Typography>
 
           <Box sx={{ display: 'flex', gap: 3 }}>
-            {['Privacy Policy', 'Heirloom Guarantee', 'Courier Terms', 'Private Concierge'].map((term) => (
-              <Typography
-                key={term}
-                variant="caption"
-                sx={{
-                  color: '#78716C',
-                  fontSize: '0.75rem',
-                  cursor: 'pointer',
-                  '&:hover': { color: '#B89758' },
-                }}
-              >
-                {term}
+            {[
+              { label: 'Privacy', path: '/policies/privacy' },
+              { label: 'Shipping', path: '/policies/shipping' },
+              { label: 'Returns', path: '/policies/returns' },
+              { label: 'Terms', path: '/policies/terms' },
+            ].map((term) => (
+              <Typography key={term.path} component={Link} to={term.path} variant="caption" sx={{ color: '#78716C', fontSize: '0.75rem', textDecoration: 'none', '&:hover': { color: '#B89758' } }}>
+                {term.label}
               </Typography>
             ))}
           </Box>

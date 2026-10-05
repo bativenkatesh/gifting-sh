@@ -8,10 +8,18 @@ import {
   Grid,
   Chip,
   Divider,
+  Alert,
+  TextField,
+  MenuItem,
 } from '@mui/material';
 import { CloseOutlined, ShoppingBagOutlined, Check } from '@mui/icons-material';
 import type { Product } from '../../types';
 import { useCart } from '../../context/CartContext';
+import { useAuth } from '../../context/AuthContext';
+import { useStoreCurrency } from '../../context/StoreSettings';
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+type Review = { id: string; userName: string; rating: number; title: string; body: string };
 
 interface QuickViewModalProps {
   product: Product | null;
@@ -21,7 +29,23 @@ interface QuickViewModalProps {
 
 export const QuickViewModal: React.FC<QuickViewModalProps> = ({ product, open, onClose }) => {
   const { addToCart } = useCart();
+  const { token } = useAuth();
+  const currency = useStoreCurrency();
   const [added, setAdded] = React.useState(false);
+  const [reviews, setReviews] = React.useState<Review[]>([]);
+  const [reviewForm, setReviewForm] = React.useState({ rating: 5, title: '', body: '' });
+  const [reviewNotice, setReviewNotice] = React.useState('');
+  const [reviewError, setReviewError] = React.useState('');
+
+  React.useEffect(() => {
+    if (!product || !open) return;
+    fetch(`${API_BASE_URL}/api/v1/products/${encodeURIComponent(product.id)}/reviews`)
+      .then(async (response) => {
+        const result = await response.json();
+        if (response.ok && result.success) setReviews(result.data.reviews);
+      })
+      .catch(() => undefined);
+  }, [open, product]);
 
   if (!product) return null;
 
@@ -33,6 +57,21 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({ product, open, o
       onClose();
     }, 900);
   };
+
+  async function submitReview(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setReviewError(''); setReviewNotice('');
+    if (!product) return;
+    if (!token) { setReviewError('Sign in to submit a review.'); return; }
+    const response = await fetch(`${API_BASE_URL}/api/v1/products/${encodeURIComponent(product.id)}/reviews`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(reviewForm),
+    });
+    const result = await response.json();
+    if (!response.ok || !result.success) { setReviewError(result.error?.message || 'Review could not be submitted.'); return; }
+    setReviewNotice('Your review was submitted for moderation.');
+    setReviewForm({ rating: 5, title: '', body: '' });
+  }
 
   return (
     <Dialog
@@ -160,7 +199,7 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({ product, open, o
                 mb: 2.5,
               }}
             >
-              ${product.price.toFixed(2)}
+              {currency} {product.price.toFixed(2)}
             </Typography>
 
             <Divider sx={{ mb: 2.5, borderColor: 'rgba(184, 151, 88, 0.2)' }} />
@@ -202,6 +241,26 @@ export const QuickViewModal: React.FC<QuickViewModalProps> = ({ product, open, o
                 </Box>
               </Box>
             )}
+
+            <Box sx={{ mb: 2.5 }}>
+              <Typography variant="caption" sx={{ fontFamily: '"Cinzel", serif', color: '#78716C', letterSpacing: '.12em', display: 'block', mb: 1 }}>Client reviews</Typography>
+              {reviews.length ? reviews.map((review) => <Box key={review.id} sx={{ py: 1, borderBottom: '1px solid rgba(184,151,88,.18)' }}>
+                <Typography variant="body2" sx={{ fontWeight: 700 }}>{review.title} · {review.rating}/5 stars</Typography>
+                <Typography variant="caption" color="text.secondary">{review.userName}</Typography>
+                <Typography variant="body2">{review.body}</Typography>
+              </Box>) : <Typography variant="caption" color="text.secondary">No published reviews yet.</Typography>}
+            </Box>
+
+            <Box component="form" onSubmit={submitReview} sx={{ display: 'grid', gridTemplateColumns: '100px 1fr', gap: 1, mb: 2 }}>
+              <TextField select label="Rating" size="small" value={reviewForm.rating} onChange={(event) => setReviewForm({ ...reviewForm, rating: Number(event.target.value) })}>
+                {[5, 4, 3, 2, 1].map((rating) => <MenuItem key={rating} value={rating}>{rating} stars</MenuItem>)}
+              </TextField>
+              <TextField required label="Review title" size="small" value={reviewForm.title} onChange={(event) => setReviewForm({ ...reviewForm, title: event.target.value })} />
+              <TextField required multiline minRows={2} label="Your review" sx={{ gridColumn: '1 / -1' }} value={reviewForm.body} onChange={(event) => setReviewForm({ ...reviewForm, body: event.target.value })} />
+              {reviewError && <Alert severity="error" sx={{ gridColumn: '1 / -1' }}>{reviewError}</Alert>}
+              {reviewNotice && <Alert severity="success" sx={{ gridColumn: '1 / -1' }}>{reviewNotice}</Alert>}
+              <Button type="submit" variant="outlined" sx={{ gridColumn: '1 / -1', justifySelf: 'end' }}>Submit review</Button>
+            </Box>
 
             {/* Action */}
             <Button

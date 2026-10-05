@@ -20,6 +20,7 @@ export function AuthPage({ mode }: AuthPageProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [infoMessage, setInfoMessage] = useState('');
 
   useEffect(() => {
     if (user && token) navigate('/catalog', { replace: true });
@@ -28,6 +29,7 @@ export function AuthPage({ mode }: AuthPageProps) {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setErrorMessage('');
+    setInfoMessage('');
     if (isSignup && password !== confirmPassword) {
       setErrorMessage('Your passwords do not match.');
       return;
@@ -41,6 +43,10 @@ export function AuthPage({ mode }: AuthPageProps) {
 
     if (!result.success) {
       setErrorMessage(result.message || (isSignup ? 'We could not create your account.' : 'We could not sign you in.'));
+      return;
+    }
+    if ('verificationRequired' in result && result.verificationRequired) {
+      setInfoMessage('Check your email for a verification link before signing in.');
       return;
     }
     navigate('/catalog', { replace: true });
@@ -79,6 +85,7 @@ export function AuthPage({ mode }: AuthPageProps) {
             </Typography>
 
             {errorMessage && <Alert severity="error" sx={{ mb: 2.5 }}>{errorMessage}</Alert>}
+            {infoMessage && <Alert severity="info" sx={{ mb: 2.5 }}>{infoMessage}</Alert>}
 
             <Box component="form" onSubmit={handleSubmit} noValidate sx={{ display: 'grid', gap: 2 }}>
               {isSignup && <TextField
@@ -103,6 +110,8 @@ export function AuthPage({ mode }: AuthPageProps) {
                 {submitting ? <CircularProgress size={22} color="inherit" /> : isSignup ? 'Create account' : 'Sign in'}
               </Button>
             </Box>
+
+            {!isSignup && <Button component={Link} to="/reset-password" sx={{ alignSelf: 'flex-end', mt: 1, color: '#8b6b32', textTransform: 'none' }}>Forgot password?</Button>}
 
             <Typography variant="body2" sx={{ mt: 3, color: '#69665f', textAlign: 'center' }}>
               {isSignup ? 'Already have an account?' : 'New to Sannidhi Collective?'}{' '}

@@ -22,6 +22,9 @@ const env = {
   databaseUrl: process.env.DATABASE_URL,
   databaseUrlUnpooled: process.env.DATABASE_URL_UNPOOLED,
   jwtSecret: process.env.JWT_SECRET || 'development-only-change-me',
+  emailWebhookUrl: process.env.EMAIL_WEBHOOK_URL,
+  emailWebhookToken: process.env.EMAIL_WEBHOOK_TOKEN,
+  frontendUrl: process.env.FRONTEND_URL || 'http://localhost:5173',
 };
 
 module.exports = env;

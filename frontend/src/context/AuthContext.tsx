@@ -11,7 +11,7 @@ interface AuthContextType {
   user: User | null;
   token: string | null;
   login: (email: string, password: string) => Promise<{ success: boolean; message?: string; user?: User }>;
-  signup: (name: string, email: string, password: string) => Promise<{ success: boolean; message?: string; user?: User }>;
+  signup: (name: string, email: string, password: string) => Promise<{ success: boolean; message?: string; user?: User; verificationRequired?: boolean }>;
   logout: () => void;
 }
 
@@ -87,9 +87,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         };
       }
 
-      setUser(data.data.user);
-      setToken(data.data.token);
-      return { success: true, user: data.data.user };
+      if (data.data.token) {
+        setUser(data.data.user);
+        setToken(data.data.token);
+      }
+      return { success: true, user: data.data.user, verificationRequired: Boolean(data.data.verificationRequired) };
     } catch (err: any) {
       return {
         success: false,

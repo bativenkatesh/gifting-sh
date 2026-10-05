@@ -1,21 +1,23 @@
 const { getCatalogProducts, findProductById } = require('../services/catalog.service');
+const { listProductReviews } = require('../services/customer.service');
 
-function listProducts(_req, res) {
-  const products = getCatalogProducts();
+async function listProducts(_req, res) {
+  const products = await getCatalogProducts();
   return res.status(200).json({
     success: true,
     data: { products, total: products.length },
   });
 }
 
-function getProductById(req, res, next) {
+async function getProductById(req, res, next) {
   try {
-    const product = findProductById(req.params.productId);
+    const product = await findProductById(req.params.productId);
     if (!product) {
       return res.status(404).json({ success: false, error: { message: 'Product not found.' } });
     }
 
-    return res.status(200).json({ success: true, data: { product } });
+    const reviews = await listProductReviews(product.id);
+    return res.status(200).json({ success: true, data: { product, reviews } });
   } catch (error) {
     return next(error);
   }

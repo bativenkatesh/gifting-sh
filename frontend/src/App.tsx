@@ -11,6 +11,12 @@ import { CatalogPage } from './pages/CatalogPage';
 import { CartPage } from './pages/CartPage';
 import { AdminPortal } from './pages/AdminPortal';
 import { AuthPage } from './pages/AuthPage';
+import { OrdersPage } from './pages/OrdersPage';
+import { WishlistPage } from './pages/WishlistPage';
+import { AddressesPage } from './pages/AddressesPage';
+import { StorePolicyPage } from './pages/StorePolicyPage';
+import { AuthActionPage } from './pages/AuthActionPage';
+import { StoreSettingsProvider } from './context/StoreSettingsContext';
 
 function StoreApp() {
   return (
@@ -25,6 +31,13 @@ function StoreApp() {
               <Route path="/cart" element={<CartPage />} />
               <Route path="/login" element={<AuthPage mode="login" />} />
               <Route path="/signup" element={<AuthPage mode="signup" />} />
+              <Route path="/verify-email" element={<AuthActionPage />} />
+              <Route path="/reset-password" element={<AuthActionPage />} />
+              <Route path="/account/orders" element={<OrdersPage />} />
+              <Route path="/account/orders/:orderId" element={<OrdersPage />} />
+              <Route path="/account/wishlist" element={<WishlistPage />} />
+              <Route path="/account/addresses" element={<AddressesPage />} />
+              <Route path="/policies/:policy" element={<StorePolicyPage />} />
             </Routes>
           </Box>
           <Footer />
@@ -42,7 +55,9 @@ function App() {
     <ThemeProvider theme={luxuryTheme}>
       <CssBaseline />
       <AuthProvider>
-        {isAdminHost ? <AdminPortal /> : <StoreApp />}
+        <StoreSettingsProvider>
+          {isAdminHost ? <AdminPortal /> : <StoreApp />}
+        </StoreSettingsProvider>
       </AuthProvider>
     </ThemeProvider>
   );

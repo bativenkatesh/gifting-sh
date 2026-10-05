@@ -9,7 +9,7 @@ import type { SelectChangeEvent } from '@mui/material/Select';
 import { useAuth } from '../context/AuthContext';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-const sections = ['Overview', 'Orders', 'Products', 'Inventory', 'Customers', 'Settings'] as const;
+const sections = ['Overview', 'Orders', 'Products', 'Inventory', 'Customers', 'Coupons', 'Reviews', 'Settings'] as const;
 type Section = typeof sections[number];
 type Product = {
   id: string; name: string; slug?: string; sku?: string; category?: string; tagline?: string;
@@ -18,10 +18,13 @@ type Product = {
 };
 type Order = {
   id: string; orderNumber: string; email: string; status: string; total: number; currency: string;
+  trackingNumber?: string; carrier?: string;
   createdAt?: string; shippingAddress?: { fullName?: string; city?: string; country?: string };
   items?: Array<{ productName: string; quantity: number; unitPrice: number }>;
 };
 type Customer = { id: string; name: string; email: string; isVerified?: boolean; isActive?: boolean; createdAt?: string };
+type Coupon = { code: string; discountType: 'percent' | 'fixed'; discountValue: number; active: boolean; expiresAt?: string | null };
+type Review = { id: string; productId: string; userName: string; rating: number; title: string; body: string; status: string };
 type Settings = {
   storeName: string; supportEmail: string; currency: string; taxRate: number;
   flatShipping: number; lowStockThreshold: number;
@@ -45,6 +48,9 @@ export function AdminWorkspace() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [coupons, setCoupons] = useState<Coupon[]>([]);
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [couponForm, setCouponForm] = useState<Coupon>({ code: '', discountType: 'percent', discountValue: 10, active: true });
   const [settings, setSettings] = useState<Settings>(emptySettings);
   const [busy, setBusy] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -54,6 +60,8 @@ export function AdminWorkspace() {
   const [productDialog, setProductDialog] = useState(false);
   const [productForm, setProductForm] = useState<ProductForm>(emptyProduct);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [trackingNumber, setTrackingNumber] = useState('');
+  const [carrier, setCarrier] = useState('');
 
   const api = useCallback(async <T,>(path: string, options: RequestInit = {}): Promise<T> => {
     const response = await fetch(`${API_BASE_URL}/api/v1/admin${path}`, {
@@ -75,18 +83,22 @@ export function AdminWorkspace() {
     setBusy(true);
     setError('');
     try {
-      const [summaryData, orderData, productData, customerData, settingsData] = await Promise.all([
+      const [summaryData, orderData, productData, customerData, settingsData, couponData, reviewData] = await Promise.all([
         api<{ stats: Summary['stats']; recentOrders: Order[] }>('/summary'),
         api<{ orders: Order[] }>('/orders'),
         api<{ products: Product[] }>('/products'),
         api<{ customers: Customer[] }>('/customers'),
         api<{ settings: Settings }>('/settings'),
+        api<{ coupons: Coupon[] }>('/coupons'),
+        api<{ reviews: Review[] }>('/reviews'),
       ]);
       setSummary(summaryData);
       setOrders(orderData.orders);
       setProducts(productData.products);
       setCustomers(customerData.customers);
       setSettings(settingsData.settings);
+      setCoupons(couponData.coupons);
+      setReviews(reviewData.reviews);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Could not load admin data.');
     } finally {
@@ -103,11 +115,15 @@ export function AdminWorkspace() {
   const filteredCustomers = useMemo(() => customers.filter((customer) =>
     `${customer.name} ${customer.email}`.toLowerCase().includes(search.toLowerCase())), [customers, search]);
 
-  async function updateOrderStatus(orderId: string, status: string) {
+  async function updateOrderStatus(orderId: string, status: string, nextTrackingNumber?: string, nextCarrier?: string) {
     setSaving(true); setError(''); setNotice('');
     try {
       const result = await api<{ order: Order }>(`/orders/${encodeURIComponent(orderId)}`, {
-        method: 'PATCH', body: JSON.stringify({ status }),
+        method: 'PATCH', body: JSON.stringify({
+          status,
+          ...(nextTrackingNumber !== undefined ? { trackingNumber: nextTrackingNumber } : {}),
+          ...(nextCarrier !== undefined ? { carrier: nextCarrier } : {}),
+        }),
       });
       setOrders((current) => current.map((order) => order.id === orderId ? result.order : order));
       setNotice('Order status updated.');
@@ -184,6 +200,37 @@ export function AdminWorkspace() {
     } finally { setSaving(false); }
   }
 
+  async function saveCoupon(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setSaving(true); setError(''); setNotice('');
+    try {
+      const result = await api<{ coupon: Coupon }>('/coupons', { method: 'POST', body: JSON.stringify(couponForm) });
+      setCoupons((current) => [result.coupon, ...current.filter((coupon) => coupon.code !== result.coupon.code)]);
+      setCouponForm({ code: '', discountType: 'percent', discountValue: 10, active: true });
+      setNotice('Coupon saved.');
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Could not save the coupon.');
+    } finally { setSaving(false); }
+  }
+
+  async function removeCoupon(code: string) {
+    try {
+      await api(`/coupons/${encodeURIComponent(code)}`, { method: 'DELETE' });
+      setCoupons((current) => current.filter((coupon) => coupon.code !== code));
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Could not delete the coupon.');
+    }
+  }
+
+  async function setReviewStatus(review: Review, status: 'approved' | 'rejected') {
+    try {
+      await api(`/reviews/${encodeURIComponent(review.id)}`, { method: 'PATCH', body: JSON.stringify({ status }) });
+      setReviews((current) => current.filter((entry) => entry.id !== review.id));
+      setNotice(`Review ${status}.`);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Could not moderate the review.');
+    }
+  }
+
   const lowStockProducts = products.filter((product) => product.status !== 'archived' && product.stockQuantity <= product.lowStockThreshold);
 
   return (
@@ -235,7 +282,7 @@ export function AdminWorkspace() {
                   <Card variant="outlined" sx={panelStyle}>
                     <CardContent>
                       <Typography variant="h6" sx={{ fontFamily: 'Georgia, serif', mb: 2 }}>Recent orders</Typography>
-                      <OrderTable orders={summary.recentOrders} saving={saving} onStatusChange={updateOrderStatus} onView={setSelectedOrder} compact />
+                      <OrderTable orders={summary.recentOrders} saving={saving} onStatusChange={updateOrderStatus} onView={(order) => { setSelectedOrder(order); setTrackingNumber(order.trackingNumber || ''); setCarrier(order.carrier || ''); }} compact />
                     </CardContent>
                   </Card>
                   <Card variant="outlined" sx={panelStyle}>
@@ -256,10 +303,29 @@ export function AdminWorkspace() {
               </>
             )}
 
-            {section === 'Orders' && <OrderTable orders={filteredOrders} saving={saving} onStatusChange={updateOrderStatus} onView={setSelectedOrder} />}
+            {section === 'Orders' && <OrderTable orders={filteredOrders} saving={saving} onStatusChange={updateOrderStatus} onView={(order) => { setSelectedOrder(order); setTrackingNumber(order.trackingNumber || ''); setCarrier(order.carrier || ''); }} />}
             {section === 'Products' && <ProductTable products={filteredProducts} onEdit={openProduct} onArchive={archiveProduct} saving={saving} />}
             {section === 'Inventory' && <InventoryTable products={filteredProducts.filter((product) => product.status !== 'archived')} onEdit={openProduct} threshold={settings.lowStockThreshold} />}
             {section === 'Customers' && <CustomerTable customers={filteredCustomers} saving={saving} onToggle={toggleCustomer} />}
+            {section === 'Coupons' && <Stack spacing={3}>
+              <Card variant="outlined" sx={{ ...panelStyle, maxWidth: 850 }}><CardContent>
+                <Typography variant="h6" sx={{ fontFamily: 'Georgia, serif', mb: 2 }}>Create or update coupon</Typography>
+                <Box component="form" onSubmit={saveCoupon} sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr 1fr auto' }, gap: 2, alignItems: 'center' }}>
+                  <TextField label="Code" required value={couponForm.code} onChange={(event) => setCouponForm({ ...couponForm, code: event.target.value.toUpperCase() })} />
+                  <FormControl><InputLabel id="discount-type-label">Discount</InputLabel><Select labelId="discount-type-label" label="Discount" value={couponForm.discountType} onChange={(event) => setCouponForm({ ...couponForm, discountType: event.target.value as Coupon['discountType'] })}><MenuItem value="percent">Percent</MenuItem><MenuItem value="fixed">Fixed amount</MenuItem></Select></FormControl>
+                  <TextField label="Value" type="number" required slotProps={{ htmlInput: { min: 0.01, step: .01 } }} value={couponForm.discountValue} onChange={(event) => setCouponForm({ ...couponForm, discountValue: Number(event.target.value) })} />
+                  <Button type="submit" variant="contained" disabled={saving} sx={primaryButton}>Save</Button>
+                </Box>
+              </CardContent></Card>
+              <TableContainer sx={{ border: '1px solid #e5dfd2', bgcolor: '#fffdf9' }}><Table size="small"><TableHead><TableRow>{['Code', 'Discount', 'Status', 'Action'].map((label) => <TableCell key={label} sx={{ fontWeight: 700 }}>{label}</TableCell>)}</TableRow></TableHead><TableBody>
+                {coupons.map((coupon) => <TableRow key={coupon.code}><TableCell>{coupon.code}</TableCell><TableCell>{coupon.discountType === 'percent' ? `${coupon.discountValue}%` : `${settings.currency} ${coupon.discountValue}`}</TableCell><TableCell>{coupon.active ? 'Active' : 'Inactive'}</TableCell><TableCell><Button color="error" onClick={() => void removeCoupon(coupon.code)}>Delete</Button></TableCell></TableRow>)}
+                {!coupons.length && <TableRow><TableCell colSpan={4} align="center">No coupons configured.</TableCell></TableRow>}
+              </TableBody></Table></TableContainer>
+            </Stack>}
+            {section === 'Reviews' && <TableContainer sx={{ border: '1px solid #e5dfd2', bgcolor: '#fffdf9' }}><Table size="small"><TableHead><TableRow>{['Product', 'Customer', 'Rating', 'Review', 'Moderation'].map((label) => <TableCell key={label} sx={{ fontWeight: 700 }}>{label}</TableCell>)}</TableRow></TableHead><TableBody>
+              {reviews.map((review) => <TableRow key={review.id}><TableCell>{review.productId}</TableCell><TableCell>{review.userName}</TableCell><TableCell>{review.rating}/5</TableCell><TableCell><Typography sx={{ fontWeight: 700 }}>{review.title}</Typography><Typography variant="body2">{review.body}</Typography></TableCell><TableCell sx={{ whiteSpace: 'nowrap' }}><Button onClick={() => void setReviewStatus(review, 'approved')}>Approve</Button><Button color="error" onClick={() => void setReviewStatus(review, 'rejected')}>Reject</Button></TableCell></TableRow>)}
+              {!reviews.length && <TableRow><TableCell colSpan={5} align="center">No reviews awaiting moderation.</TableCell></TableRow>}
+            </TableBody></Table></TableContainer>}
             {section === 'Settings' && (
               <Card variant="outlined" sx={{ ...panelStyle, maxWidth: 850 }}>
                 <CardContent sx={{ p: { xs: 2, md: 4 } }}>
@@ -282,7 +348,7 @@ export function AdminWorkspace() {
                     </Box>
                   </Box>
                   <Divider sx={{ my: 3 }} />
-                  <Alert severity="info">Store settings persist in Postgres when DATABASE_URL is configured. The current catalog, inventory, and orders still use server memory and reset when the API process restarts.</Alert>
+                  <Alert severity="info">Catalog, inventory, carts, orders, customer preferences, and store settings persist when DATABASE_URL is configured. Without it, data is kept in process memory and resets when the API restarts.</Alert>
                 </CardContent>
               </Card>
             )}
@@ -303,6 +369,22 @@ export function AdminWorkspace() {
               <TextField label="Low-stock threshold" type="number" slotProps={{ htmlInput: { min: 0, step: 1 } }} value={productForm.lowStockThreshold} onChange={(event) => setProductForm({ ...productForm, lowStockThreshold: Number(event.target.value) })} />
               <TextField label="Tagline" value={productForm.tagline || ''} onChange={(event) => setProductForm({ ...productForm, tagline: event.target.value })} />
               <TextField label="Image URL" value={productForm.image || ''} onChange={(event) => setProductForm({ ...productForm, image: event.target.value })} />
+              <TextField
+                label="Upload product image"
+                type="file"
+                slotProps={{ htmlInput: { accept: 'image/png,image/jpeg,image/webp,image/gif' } }}
+                onChange={(event) => {
+                  const file = (event.target as HTMLInputElement).files?.[0];
+                  if (!file) return;
+                  if (file.size > 2 * 1024 * 1024) {
+                    setError('Choose a product image smaller than 2 MB.');
+                    return;
+                  }
+                  const reader = new FileReader();
+                  reader.onload = () => setProductForm((current) => ({ ...current, image: String(reader.result || '') }));
+                  reader.readAsDataURL(file);
+                }}
+              />
               <TextField label="Description" multiline minRows={3} sx={{ gridColumn: '1 / -1' }} value={productForm.description || ''} onChange={(event) => setProductForm({ ...productForm, description: event.target.value })} />
             </Box>
           </DialogContent>
@@ -333,6 +415,16 @@ export function AdminWorkspace() {
                 <Typography variant="body2">{selectedOrder.shippingAddress?.fullName || '—'}</Typography>
                 <Typography variant="body2" color="text.secondary">{[selectedOrder.shippingAddress?.city, selectedOrder.shippingAddress?.country].filter(Boolean).join(', ') || 'Address not provided'}</Typography>
               </Box>
+              <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5 }}>
+                <TextField label="Carrier" value={carrier} onChange={(event) => setCarrier(event.target.value)} />
+                <TextField label="Tracking number" value={trackingNumber} onChange={(event) => setTrackingNumber(event.target.value)} />
+                <Button
+                  variant="outlined"
+                  disabled={saving}
+                  sx={{ gridColumn: '1 / -1', justifySelf: 'end' }}
+                  onClick={() => updateOrderStatus(selectedOrder.id, selectedOrder.status, trackingNumber, carrier)}
+                >Save tracking details</Button>
+              </Box>
               <Stack direction="row" sx={{ justifyContent: 'space-between' }}>
                 <Typography sx={{ fontWeight: 700 }}>Order total</Typography>
                 <Typography sx={{ fontWeight: 700 }}>{selectedOrder.currency} {Number(selectedOrder.total).toLocaleString('en-IN')}</Typography>
@@ -353,6 +445,8 @@ function sectionDescription(section: Section) {
     Products: 'Create, update, and archive the storefront catalog.',
     Inventory: 'Monitor stock levels and update quantities or reorder thresholds.',
     Customers: 'Customer account directory from the configured user store.',
+    Coupons: 'Manage discount codes accepted during checkout.',
+    Reviews: 'Approve or reject customer-submitted product reviews.',
     Settings: 'Manage store identity, currency, tax, shipping, and stock alerts.',
   };
   return descriptions[section];

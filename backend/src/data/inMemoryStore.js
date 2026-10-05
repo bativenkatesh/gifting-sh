@@ -32,18 +32,38 @@ function findUserByEmail(email) {
   return users.find((user) => user.email === email.toLowerCase());
 }
 
-function createUser({ name, email, passwordHash, role = 'user' }) {
+function createUser({ name, email, passwordHash, role = 'user', isVerified = false, requiresEmailVerification = false }) {
   const user = {
     id: makeId('user'),
     name,
     email: email.toLowerCase(),
     passwordHash,
     role,
-    isVerified: false,
+    isVerified,
+    requiresEmailVerification,
     isActive: true,
     createdAt: new Date().toISOString(),
   };
   users.push(user);
+  return user;
+}
+
+function findUserById(userId) {
+  return users.find((user) => user.id === userId) || null;
+}
+
+function updateUserVerification(userId, isVerified) {
+  const user = findUserById(userId);
+  if (!user) return null;
+  user.isVerified = isVerified;
+  user.requiresEmailVerification = false;
+  return user;
+}
+
+function updateUserPassword(userId, passwordHash) {
+  const user = findUserById(userId);
+  if (!user) return null;
+  user.passwordHash = passwordHash;
   return user;
 }
 
@@ -144,7 +164,7 @@ function findOrderById(orderId) {
   return orders.find((order) => order.id === orderId) || null;
 }
 
-function updateOrderStatus({ orderId, status, actor }) {
+function updateOrderStatus({ orderId, status, actor, trackingNumber, carrier }) {
   const order = orders.find((entry) => entry.id === orderId);
   if (!order) return null;
 
@@ -162,6 +182,8 @@ function updateOrderStatus({ orderId, status, actor }) {
   }
 
   order.status = status;
+  if (trackingNumber !== undefined) order.trackingNumber = trackingNumber;
+  if (carrier !== undefined) order.carrier = carrier;
   order.lastUpdated = new Date().toISOString();
   return { ...order };
 }
@@ -179,6 +201,9 @@ module.exports = {
   orders,
   createUser,
   findUserByEmail,
+  findUserById,
+  updateUserVerification,
+  updateUserPassword,
   addItemToCart,
   getCart,
   updateCartItemQuantity,

@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box,
   Container,
+  Stack,
   Typography,
   Grid,
   Button,
@@ -14,6 +15,7 @@ import {
   Radio,
   Dialog,
   Alert,
+  CircularProgress,
 } from '@mui/material';
 import {
   Add,
@@ -24,6 +26,22 @@ import {
 } from '@mui/icons-material';
 import { useCart } from '../context/CartContext';
 import { ribbonOptions, waxSealOptions } from '../data/products';
+import { useAuth } from '../context/AuthContext';
+import { useStoreCurrency } from '../context/StoreSettings';
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+type OrderReceipt = { orderNumber: string; total: number; currency: string; status: string };
+type SavedAddress = { id: string; fullName: string; addressLine1: string; city: string; state: string; postalCode: string; country: string };
+type CheckoutQuote = { subtotal: number; discountAmount: number; shippingAmount: number; taxAmount: number; total: number; currency: string };
+
+function getSessionId() {
+  let sessionId = localStorage.getItem('gifting_session_id');
+  if (!sessionId) {
+    sessionId = `session-${crypto.randomUUID()}`;
+    localStorage.setItem('gifting_session_id', sessionId);
+  }
+  return sessionId;
+}
 
 export const CartPage: React.FC = () => {
   const {
@@ -36,20 +54,129 @@ export const CartPage: React.FC = () => {
     updateGiftOptions,
     clearCart,
   } = useCart();
+  const { user, token } = useAuth();
+  const currency = useStoreCurrency();
   const navigate = useNavigate();
 
   const [checkoutModalOpen, setCheckoutModalOpen] = useState(false);
   const [orderComplete, setOrderComplete] = useState(false);
+  const [orderReceipt, setOrderReceipt] = useState<OrderReceipt | null>(null);
+  const [checkoutError, setCheckoutError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([]);
+  const [couponCode, setCouponCode] = useState('');
+  const [quote, setQuote] = useState<CheckoutQuote | null>(null);
+  const [address, setAddress] = useState({
+    fullName: user?.name || '',
+    email: user?.email || '',
+    addressLine1: '',
+    city: '',
+    state: '',
+    postalCode: '',
+    country: '',
+  });
 
-  const handleCheckout = () => {
-    setCheckoutModalOpen(true);
+  const handleCheckout = async () => {
+    if (!token) {
+      navigate('/login', { state: { from: '/cart' } });
+      return;
+    }
+    setSubmitting(true);
+    setCheckoutError('');
+    try {
+      const sessionId = getSessionId();
+      const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+      const send = async (path: string, body: unknown, method = 'POST') => {
+        const response = await fetch(`${API_BASE_URL}/api/v1${path}`, { method, headers, body: JSON.stringify(body) });
+        const result = await response.json();
+        if (!response.ok || !result.success) throw new Error(result.error?.message || 'Checkout could not be prepared.');
+        return result.data;
+      };
+      await send('/cart/clear', { sessionId }, 'DELETE');
+      for (const item of items) {
+        await send('/cart/items', {
+          sessionId,
+          productId: item.productId,
+          quantity: item.quantity,
+          ...(item.product.isCustomBox ? { customBox: { boxId: item.customizations?.boxOptionId, addonIds: item.customizations?.addonIds || [] } } : {}),
+          customizations: {
+            ...item.customizations,
+            calligraphyNote: giftOptions.calligraphyNote,
+            senderName: giftOptions.senderName,
+            recipientName: giftOptions.recipientName,
+            ribbonColor: giftOptions.ribbonColor,
+            waxSeal: giftOptions.waxSeal,
+          },
+        });
+      }
+      const response = await fetch(`${API_BASE_URL}/api/v1/account/addresses`, { headers: { Authorization: `Bearer ${token}` } });
+      const result = await response.json();
+      if (response.ok && result.success) {
+        setSavedAddresses(result.data.addresses || []);
+        const lastAddress = result.data.addresses?.at(-1);
+        if (lastAddress) setAddress((current) => ({ ...lastAddress, email: current.email || user?.email || '' }));
+      }
+      setCheckoutModalOpen(true);
+    } catch (requestError) {
+      setCheckoutError(requestError instanceof Error ? requestError.message : 'Checkout could not be prepared.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const handleConfirmOrder = () => {
-    setOrderComplete(true);
-    setTimeout(() => {
+  useEffect(() => {
+    if (!checkoutModalOpen || !token || orderComplete) return;
+    const params = new URLSearchParams({ sessionId: getSessionId() });
+    if (couponCode.trim()) params.set('couponCode', couponCode.trim());
+    fetch(`${API_BASE_URL}/api/v1/checkout/quote?${params}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(async (response) => {
+        const result = await response.json();
+        if (!response.ok || !result.success) throw new Error(result.error?.message || 'Could not calculate checkout total.');
+        setQuote(result.data.quote);
+        setCheckoutError('');
+      })
+      .catch((requestError) => {
+        setQuote(null);
+        setCheckoutError(requestError instanceof Error ? requestError.message : 'Could not calculate checkout total.');
+      });
+  }, [checkoutModalOpen, couponCode, items, orderComplete, token]);
+
+  const handleConfirmOrder = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!token) {
+      navigate('/login', { state: { from: '/cart' } });
+      return;
+    }
+    setSubmitting(true);
+    setCheckoutError('');
+    try {
+      const sessionId = getSessionId();
+      const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+      const send = async (path: string, body: unknown, method = 'POST') => {
+        const response = await fetch(`${API_BASE_URL}/api/v1${path}`, {
+          method, headers, body: JSON.stringify(body),
+        });
+        const result = await response.json();
+        if (!response.ok || !result.success) throw new Error(result.error?.message || 'Checkout could not be completed.');
+        return result.data;
+      };
+
+      const result = await send('/checkout', {
+        sessionId,
+        email: address.email,
+        shippingAddress: address,
+        billingAddress: address,
+        giftMessage: giftOptions.calligraphyNote,
+        couponCode,
+      });
+      setOrderReceipt(result.order);
+      setOrderComplete(true);
       clearCart();
-    }, 1500);
+    } catch (requestError) {
+      setCheckoutError(requestError instanceof Error ? requestError.message : 'Checkout could not be completed.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -190,7 +317,7 @@ export const CartPage: React.FC = () => {
                             mt: 0.8,
                           }}
                         >
-                          ${item.product.price.toFixed(2)} each
+                          {currency} {item.product.price.toFixed(2)} each
                         </Typography>
                       </Box>
 
@@ -209,7 +336,7 @@ export const CartPage: React.FC = () => {
                         </Box>
 
                         <Typography sx={{ fontWeight: 600, minWidth: 70, textAlign: 'right', fontFamily: '"Plus Jakarta Sans", sans-serif' }}>
-                          ${(item.product.price * item.quantity).toFixed(2)}
+                          {currency} {(item.product.price * item.quantity).toFixed(2)}
                         </Typography>
 
                         <IconButton onClick={() => removeFromCart(item.id)} sx={{ color: '#A8A29E', '&:hover': { color: '#C98A90' } }}>
@@ -447,7 +574,7 @@ export const CartPage: React.FC = () => {
 
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1.5 }}>
                   <Typography variant="body2" sx={{ color: '#78716C' }}>Curated Items Subtotal</Typography>
-                  <Typography variant="body2" sx={{ fontWeight: 600 }}>${subtotal.toFixed(2)}</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>{currency} {subtotal.toFixed(2)}</Typography>
                 </Box>
 
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1.5 }}>
@@ -461,18 +588,18 @@ export const CartPage: React.FC = () => {
                 </Box>
 
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1.5 }}>
-                  <Typography variant="body2" sx={{ color: '#78716C' }}>Insured White-Glove Courier</Typography>
-                  <Typography variant="body2" sx={{ color: '#B89758', fontWeight: 600 }}>Complimentary</Typography>
+                  <Typography variant="body2" sx={{ color: '#78716C' }}>Courier delivery</Typography>
+                  <Typography variant="body2" sx={{ color: '#78716C', fontWeight: 600 }}>Calculated at checkout</Typography>
                 </Box>
 
                 <Divider sx={{ my: 2.5, borderColor: 'rgba(184, 151, 88, 0.2)' }} />
 
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', mb: 3 }}>
                   <Typography variant="h6" sx={{ fontFamily: '"Cinzel", serif', letterSpacing: '0.1em' }}>
-                    Grand Total
+                    Items Total
                   </Typography>
                   <Typography variant="h4" sx={{ fontFamily: '"Cormorant Garamond", serif', fontWeight: 700, color: '#1C1917' }}>
-                    ${total.toFixed(2)}
+                    {currency} {total.toFixed(2)}
                   </Typography>
                 </Box>
 
@@ -481,6 +608,7 @@ export const CartPage: React.FC = () => {
                   variant="contained"
                   size="large"
                   onClick={handleCheckout}
+                  disabled={submitting}
                   startIcon={<LockOutlined />}
                   sx={{
                     py: 1.8,
@@ -496,7 +624,7 @@ export const CartPage: React.FC = () => {
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, mt: 2 }}>
                   <CheckCircleOutlined sx={{ fontSize: '0.9rem', color: '#B89758' }} />
                   <Typography variant="caption" sx={{ color: '#78716C', fontSize: '0.72rem' }}>
-                    Encrypted White-Glove Fulfillment & Tracking
+                    Order confirmation and tracking updates in your account
                   </Typography>
                 </Box>
               </Box>
@@ -505,7 +633,6 @@ export const CartPage: React.FC = () => {
         )}
       </Container>
 
-      {/* Checkout Modal Simulation */}
       <Dialog
         open={checkoutModalOpen}
         onClose={() => !orderComplete && setCheckoutModalOpen(false)}
@@ -522,7 +649,7 @@ export const CartPage: React.FC = () => {
           },
         }}
       >
-        {orderComplete ? (
+        {orderComplete && orderReceipt ? (
           <Box sx={{ textAlign: 'center', py: 4 }}>
             <Box
               component="img"
@@ -534,56 +661,66 @@ export const CartPage: React.FC = () => {
               Your Parcel is Commissioned
             </Typography>
             <Typography variant="caption" sx={{ fontFamily: '"Cinzel", serif', letterSpacing: '0.15em', color: '#B89758', display: 'block', mb: 2 }}>
-              Order Reference #ML-{Math.floor(100000 + Math.random() * 900000)}
+              Order Reference {orderReceipt.orderNumber}
             </Typography>
             <Typography variant="body2" sx={{ color: '#78716C', maxWidth: 440, mx: 'auto', mb: 3 }}>
-              Our master calligraphers and packers have begun preparing your presentation box. A courier dispatch notice will be transmitted upon sealing.
+              Your order has been recorded. Payment is not yet configured, so this order remains awaiting payment.
             </Typography>
             <Button
               variant="contained"
               onClick={() => {
                 setCheckoutModalOpen(false);
                 setOrderComplete(false);
-                navigate('/');
+                navigate('/account/orders');
               }}
             >
-              Return to The Atelier
+              View My Orders
             </Button>
           </Box>
         ) : (
-          <Box>
+          <Box component="form" onSubmit={handleConfirmOrder}>
             <Typography variant="h5" sx={{ fontFamily: '"Cormorant Garamond", serif', fontSize: '1.6rem', mb: 0.5 }}>
-              Confirm White-Glove Dispatch
+              Delivery details
             </Typography>
             <Typography variant="caption" sx={{ color: '#78716C', fontFamily: '"Cinzel", serif', display: 'block', mb: 3 }}>
-              Sannidhi Collective Private Delivery Protocol
+              Signed in as {user?.email || 'customer'}
             </Typography>
 
-            <Alert severity="info" sx={{ mb: 3, borderRadius: 0, backgroundColor: 'rgba(184, 151, 88, 0.1)', color: '#8C6D34' }}>
-              Your parcel includes <strong>{giftOptions.recipientName}</strong>'s handwritten calligraphy card with the <strong>{waxSealOptions.find(w => w.id === giftOptions.waxSeal)?.name}</strong>.
-            </Alert>
-
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mb: 3 }}>
-              <TextField label="Courier Delivery Address" variant="outlined" size="small" defaultValue="45 Eaton Square, Belgravia, London" fullWidth />
-              <TextField label="Special Delivery Instructions" variant="outlined" size="small" placeholder="e.g. Leave with private concierge" fullWidth />
+            {checkoutError && <Alert severity="error" sx={{ mb: 2 }}>{checkoutError}</Alert>}
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2, mb: 3 }}>
+              {savedAddresses.length > 0 && <Alert severity="success" sx={{ gridColumn: '1 / -1' }}>Your most recently saved delivery address has been filled in.</Alert>}
+              <TextField required label="Recipient name" value={address.fullName} onChange={(event) => setAddress({ ...address, fullName: event.target.value })} />
+              <TextField required type="email" label="Contact email" value={address.email} onChange={(event) => setAddress({ ...address, email: event.target.value })} />
+              <TextField required label="Address" sx={{ gridColumn: '1 / -1' }} value={address.addressLine1} onChange={(event) => setAddress({ ...address, addressLine1: event.target.value })} />
+              <TextField required label="City" value={address.city} onChange={(event) => setAddress({ ...address, city: event.target.value })} />
+              <TextField required label="State / region" value={address.state} onChange={(event) => setAddress({ ...address, state: event.target.value })} />
+              <TextField required label="Postal code" value={address.postalCode} onChange={(event) => setAddress({ ...address, postalCode: event.target.value })} />
+              <TextField required label="Country" value={address.country} onChange={(event) => setAddress({ ...address, country: event.target.value })} />
+              <TextField label="Coupon code" value={couponCode} onChange={(event) => setCouponCode(event.target.value.toUpperCase())} sx={{ gridColumn: '1 / -1' }} />
             </Box>
 
             <Box sx={{ p: 2, backgroundColor: '#FFFFFF', border: '1px solid rgba(184, 151, 88, 0.2)', mb: 3 }}>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
                 <Typography variant="body2" sx={{ color: '#78716C' }}>Total Order Value:</Typography>
-                <Typography variant="body2" sx={{ fontWeight: 700 }}>${total.toFixed(2)}</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 700 }}>{quote?.currency || currency} {Number(quote?.total ?? total).toFixed(2)}</Typography>
               </Box>
+              {quote && <Stack spacing={0.5} sx={{ mb: 1.5 }}>
+                <Typography variant="caption" color="text.secondary">Subtotal {quote.currency} {quote.subtotal.toFixed(2)}</Typography>
+                {quote.discountAmount > 0 && <Typography variant="caption" color="success.main">Discount −{quote.currency} {quote.discountAmount.toFixed(2)}</Typography>}
+                <Typography variant="caption" color="text.secondary">Shipping {quote.currency} {quote.shippingAmount.toFixed(2)}</Typography>
+                <Typography variant="caption" color="text.secondary">Tax {quote.currency} {quote.taxAmount.toFixed(2)}</Typography>
+              </Stack>}
               <Typography variant="caption" sx={{ color: '#B89758', display: 'block' }}>
-                Complimentary worldwide insured courier service included.
+                Shipping charges are calculated from the store settings shown above.
               </Typography>
             </Box>
 
             <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 2 }}>
-              <Button variant="outlined" onClick={() => setCheckoutModalOpen(false)}>
+              <Button variant="outlined" onClick={() => setCheckoutModalOpen(false)} disabled={submitting}>
                 Modify Parcel
               </Button>
-              <Button variant="contained" onClick={handleConfirmOrder}>
-                Authorize & Seal Parcel
+              <Button type="submit" variant="contained" disabled={submitting || !quote}>
+                {submitting ? <CircularProgress size={21} color="inherit" /> : 'Place order'}
               </Button>
             </Box>
           </Box>

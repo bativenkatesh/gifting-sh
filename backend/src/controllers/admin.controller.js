@@ -1,26 +1,29 @@
 const env = require('../config/env');
-const { users, orders, updateCustomerActiveStatus } = require('../data/inMemoryStore');
-const { catalogProducts, getCatalogProducts, saveProduct, archiveProduct } = require('../services/catalog.service');
+const { users, updateCustomerActiveStatus } = require('../data/inMemoryStore');
+const { getCatalogProducts, saveProduct, archiveProduct } = require('../services/catalog.service');
+const { listOrders } = require('../services/orders.service');
 const { getStoreSettings, saveStoreSettings } = require('../services/settings.service');
+const { listCoupons, saveCoupon, deleteCoupon, listPendingReviews, moderateReview } = require('../services/customer.service');
 
 const User = env.databaseUrl && env.nodeEnv !== 'test' ? require('../models/user.model') : null;
 
 async function getAdminSummary(_req, res, next) {
   try {
     const customerCount = User ? await User.count({ where: { role: 'user' } }) : users.filter((user) => user.role === 'user').length;
-    const activeProducts = catalogProducts.filter((product) => product.status !== 'archived');
+    const activeProducts = await getCatalogProducts();
+    const allOrders = await listOrders({ role: 'admin' });
   return res.status(200).json({
     success: true,
     data: {
       stats: {
         users: customerCount,
-        orders: orders.length,
-        revenue: orders.reduce((sum, order) => sum + Number(order.total || 0), 0),
-        pendingOrders: orders.filter((order) => order.status === 'pending_payment').length,
+        orders: allOrders.length,
+        revenue: allOrders.reduce((sum, order) => sum + Number(order.total || 0), 0),
+        pendingOrders: allOrders.filter((order) => order.status === 'pending_payment').length,
         products: activeProducts.length,
         lowStockProducts: activeProducts.filter((product) => product.stockQuantity <= product.lowStockThreshold).length,
       },
-      recentOrders: orders.slice(-5).reverse(),
+      recentOrders: allOrders.slice(0, 5),
     },
   });
   } catch (error) {
@@ -28,23 +31,23 @@ async function getAdminSummary(_req, res, next) {
   }
 }
 
-function listAdminProducts(_req, res) {
-  const products = getCatalogProducts();
+async function listAdminProducts(_req, res) {
+  const products = await getCatalogProducts();
   return res.status(200).json({ success: true, data: { products, total: products.length } });
 }
 
-function createAdminProduct(req, res, next) {
+async function createAdminProduct(req, res, next) {
   try {
-    const product = saveProduct(req.body || {});
+    const product = await saveProduct(req.body || {});
     return res.status(201).json({ success: true, data: { product } });
   } catch (error) {
     return next(error);
   }
 }
 
-function updateAdminProduct(req, res, next) {
+async function updateAdminProduct(req, res, next) {
   try {
-    const product = saveProduct(req.body || {}, req.params.productId);
+    const product = await saveProduct(req.body || {}, req.params.productId);
     if (!product) return res.status(404).json({ success: false, error: { message: 'Product not found.' } });
     return res.status(200).json({ success: true, data: { product } });
   } catch (error) {
@@ -52,8 +55,8 @@ function updateAdminProduct(req, res, next) {
   }
 }
 
-function archiveAdminProduct(req, res) {
-  const product = archiveProduct(req.params.productId);
+async function archiveAdminProduct(req, res) {
+  const product = await archiveProduct(req.params.productId);
   if (!product) return res.status(404).json({ success: false, error: { message: 'Product not found.' } });
   return res.status(200).json({ success: true, data: { product } });
 }
@@ -129,6 +132,38 @@ async function updateAdminSettings(req, res, next) {
   }
 }
 
+async function listAdminCoupons(_req, res, next) {
+  try {
+    return res.json({ success: true, data: { coupons: await listCoupons() } });
+  } catch (error) { return next(error); }
+}
+
+async function createAdminCoupon(req, res, next) {
+  try {
+    const coupon = await saveCoupon(req.body || {});
+    return res.status(201).json({ success: true, data: { coupon } });
+  } catch (error) { return next(error); }
+}
+
+async function deleteAdminCoupon(req, res) {
+  await deleteCoupon(req.params.code);
+  return res.status(204).end();
+}
+
+async function listAdminReviews(_req, res, next) {
+  try {
+    return res.json({ success: true, data: { reviews: await listPendingReviews() } });
+  } catch (error) { return next(error); }
+}
+
+async function moderateAdminReview(req, res, next) {
+  try {
+    const review = await moderateReview(req.params.reviewId, req.body?.status);
+    if (!review) return res.status(404).json({ success: false, error: { message: 'Review not found.' } });
+    return res.json({ success: true, data: { review } });
+  } catch (error) { return next(error); }
+}
+
 module.exports = {
   getAdminSummary,
   listAdminProducts,
@@ -139,4 +174,9 @@ module.exports = {
   updateAdminCustomer,
   getAdminSettings,
   updateAdminSettings,
+  listAdminCoupons,
+  createAdminCoupon,
+  deleteAdminCoupon,
+  listAdminReviews,
+  moderateAdminReview,
 };

@@ -12,6 +12,7 @@ import {
 } from '@mui/material';
 import { CloseOutlined, Add, Remove, DeleteOutlined, ArrowForward } from '@mui/icons-material';
 import { useCart } from '../../context/CartContext';
+import { useStoreCurrency } from '../../context/StoreSettings';
 
 export const CartDrawer: React.FC = () => {
   const {
@@ -24,6 +25,7 @@ export const CartDrawer: React.FC = () => {
     totalItems,
   } = useCart();
   const navigate = useNavigate();
+  const currency = useStoreCurrency();
 
   const handleGoToCart = () => {
     closeCart();
@@ -171,7 +173,7 @@ export const CartDrawer: React.FC = () => {
                       fontSize: '0.9rem',
                     }}
                   >
-                    ${item.product.price.toFixed(2)}
+                    {currency} {item.product.price.toFixed(2)}
                   </Typography>
 
                   {/* Quantity controls */}
@@ -235,7 +237,7 @@ export const CartDrawer: React.FC = () => {
               Estimated Total
             </Typography>
             <Typography variant="h5" sx={{ fontFamily: '"Cormorant Garamond", serif', fontWeight: 700, color: '#1C1917' }}>
-              ${subtotal.toFixed(2)}
+              {currency} {subtotal.toFixed(2)}
             </Typography>
           </Box>
 

@@ -27,6 +27,9 @@ export interface CartItem {
     senderName?: string;
     recipientName?: string;
     itemsIncluded?: string[];
+    boxOptionId?: string;
+    addonIds?: string[];
+    customBox?: { boxId: string; addonIds: string[] };
   };
 }
 

@@ -24,8 +24,13 @@ listening. Set `DATABASE_URL` and `JWT_SECRET` in `.env.local` or `.env`.
 { "email": "ada@example.com", "password": "at-least-8-characters" }
 ```
 
-Both endpoints return a JWT and the public user profile. Password hashes are
-never included in responses.
+Signup returns a JWT when email verification is not configured. In production,
+set `EMAIL_WEBHOOK_URL` to require verification; login is then blocked for
+accounts that have not verified. Password hashes are never included in
+responses. `POST /api/v1/auth/verify-email` consumes the emailed one-time link.
+Password recovery uses `POST /api/v1/auth/password-reset/request` and
+`POST /api/v1/auth/password-reset/confirm`; reset requests return a generic
+response whether or not the account exists.
 # Gifting SH Backend
 
 Express API foundation following an MVC structure.
@@ -73,19 +78,38 @@ role is `admin`:
   archives the product
 - `GET /customers`: list customer accounts without password hashes
 - `PATCH /customers/:customerId`: activate or deactivate a customer account
+- `GET /coupons`, `POST /coupons`, `DELETE /coupons/:code`: manage checkout discounts
+- `GET /reviews`, `PATCH /reviews/:reviewId`: moderate customer-submitted reviews
 - `GET /settings`, `PUT /settings`: read and update store identity, currency,
   tax, shipping, and inventory alert settings
 
-Store settings persist in the `store_settings` table when Postgres is enabled.
-The demo catalog and order collections remain in memory and reset when the API
-restarts. Checkout reads the saved currency, tax rate, and flat shipping value;
-successful orders decrement the in-memory catalog stock.
+Store settings persist in `store_settings`. Products, carts, orders, customer
+addresses, wishlists, reviews, coupons, newsletter consent, action tokens, and
+order notifications persist in `commerce_records` when `DATABASE_URL` is set.
+Without a database, the same APIs run against process memory and data resets
+when the API restarts. Checkout quotes and order creation share server-side
+currency, tax, shipping, stock, and coupon calculations. Shipped status requires
+a tracking number. Order detail access is restricted to the owner or an admin.
+
+Set `EMAIL_WEBHOOK_URL` to a trusted service that accepts JSON `{ to, subject,
+text }` POST requests. Optionally set `EMAIL_WEBHOOK_TOKEN` for a Bearer token
+and `FRONTEND_URL` for verification/reset links. In production signup fails
+closed if email delivery is not configured. Order status messages are recorded
+in-app and forwarded through the same webhook when configured. The webhook is
+an integration point; no mail provider is bundled.
+
+Admin product images may be uploaded as PNG, JPEG, WebP, or GIF files up to
+2 MB. Image data is stored with product records; for larger catalogs, replace
+this bounded data-URL storage with object storage.
+
+Checkout currently creates an order in `pending_payment` state. Payment
+provider integration is intentionally not included.
 
 ## Admin account database fields
 
 When `DATABASE_URL` is configured, signup and login use the Sequelize `users`
-table. Startup adds missing `role`, `isVerified`, and `isActive` columns to an
-existing `users` table automatically. Without `DATABASE_URL`, the API uses an
+table. Startup adds missing `role`, `isVerified`, `requiresEmailVerification`,
+and `isActive` columns to an existing `users` table automatically. Without `DATABASE_URL`, the API uses an
 in-memory store, so accounts created directly in Postgres are not available to
 that local fallback.
 
@@ -99,6 +123,7 @@ The user record needs these columns:
 | `passwordHash` | varchar | Required; bcrypt hash, never plaintext |
 | `role` | varchar(16) | `user` or `admin`; defaults to `user` |
 | `isVerified` | boolean | Required; defaults to `false` |
+| `requiresEmailVerification` | boolean | Required; defaults to `false` |
 | `isActive` | boolean | Required; defaults to `true` |
 | `createdAt`, `updatedAt` | timestamp | Required Sequelize timestamps |
 
@@ -111,6 +136,7 @@ below also protects direct inserts:
 ALTER TABLE users
   ADD COLUMN IF NOT EXISTS "role" varchar(16) NOT NULL DEFAULT 'user',
   ADD COLUMN IF NOT EXISTS "isVerified" boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS "requiresEmailVerification" boolean NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS "isActive" boolean NOT NULL DEFAULT true;
 
 ALTER TABLE users

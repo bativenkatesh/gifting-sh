@@ -9,6 +9,11 @@ const {
 	updateAdminCustomer,
 	getAdminSettings,
 	updateAdminSettings,
+	listAdminCoupons,
+	createAdminCoupon,
+	deleteAdminCoupon,
+	listAdminReviews,
+	moderateAdminReview,
 } = require('../controllers/admin.controller');
 const { getOrders, updateOrder } = require('../controllers/checkout.controller');
 const { authenticate, requireAdmin } = require('../middleware/auth.middleware');
@@ -27,5 +32,10 @@ router.get('/customers', listAdminCustomers);
 router.patch('/customers/:customerId', updateAdminCustomer);
 router.get('/settings', getAdminSettings);
 router.put('/settings', updateAdminSettings);
+router.get('/coupons', listAdminCoupons);
+router.post('/coupons', createAdminCoupon);
+router.delete('/coupons/:code', deleteAdminCoupon);
+router.get('/reviews', listAdminReviews);
+router.patch('/reviews/:reviewId', moderateAdminReview);
 
 module.exports = router;

@@ -29,10 +29,12 @@ import { products, boxOptions, builderAddons, ribbonOptions, waxSealOptions } fr
 import { useCart } from '../context/CartContext';
 import type { Product } from '../types';
 import { ScrollStoryHero } from '../components/home/ScrollStoryHero';
+import { useStoreCurrency } from '../context/StoreSettings';
 
 export const HomePage: React.FC = () => {
   const navigate = useNavigate();
   const { addToCart, updateGiftOptions } = useCart();
+  const currency = useStoreCurrency();
 
   // Signature boxes from products
   const signatureBoxes = products.filter((p) => p.category === 'Heirloom Boxes');
@@ -76,6 +78,8 @@ export const HomePage: React.FC = () => {
 
     addToCart(customProduct, 1, {
       boxStyle: currentBox.name,
+      boxOptionId: currentBox.id,
+      addonIds: selectedAddons,
       ribbonColor: ribbonOptions.find((r) => r.id === selectedRibbon)?.name,
       waxSeal: waxSealOptions.find((w) => w.id === selectedSeal)?.name,
       calligraphyNote: customNote,
@@ -281,7 +285,7 @@ export const HomePage: React.FC = () => {
                         fontSize: '1.15rem',
                       }}
                     >
-                      ${box.price.toFixed(2)}
+                      {currency} {box.price.toFixed(2)}
                     </Typography>
 
                     <Button
@@ -447,7 +451,7 @@ export const HomePage: React.FC = () => {
                             </Box>
                           </Box>
                           <Typography sx={{ fontFamily: '"Plus Jakarta Sans", sans-serif', fontWeight: 600, color: '#B89758' }}>
-                            ${box.price.toFixed(2)}
+                            {currency} {box.price.toFixed(2)}
                           </Typography>
                         </Box>
                       ))}
@@ -497,7 +501,7 @@ export const HomePage: React.FC = () => {
                                   {addon.name}
                                 </Typography>
                                 <Typography variant="caption" sx={{ color: '#B89758', fontWeight: 600 }}>
-                                  +${addon.price.toFixed(2)}
+                                  +{currency} {addon.price.toFixed(2)}
                                 </Typography>
                               </Box>
                             </Box>
@@ -646,7 +650,7 @@ export const HomePage: React.FC = () => {
                       onClick={handleAddCustomBoxToCart}
                       sx={{ backgroundColor: '#B89758', '&:hover': { backgroundColor: '#8C6D34' } }}
                     >
-                      Add Bespoke Box to Parcel (${customBoxTotal.toFixed(2)})
+                      Add Bespoke Box to Parcel ({currency} {customBoxTotal.toFixed(2)})
                     </Button>
                   )}
                 </Box>
@@ -699,7 +703,7 @@ export const HomePage: React.FC = () => {
                 <Box sx={{ mb: 2 }}>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
                     <Typography variant="body2" sx={{ fontWeight: 600 }}>{currentBox.name}</Typography>
-                    <Typography variant="body2" sx={{ color: '#B89758', fontWeight: 600 }}>${currentBox.price.toFixed(2)}</Typography>
+                    <Typography variant="body2" sx={{ color: '#B89758', fontWeight: 600 }}>{currency} {currentBox.price.toFixed(2)}</Typography>
                   </Box>
                   <Typography variant="caption" sx={{ color: '#78716C', display: 'block' }}>{currentBox.material}</Typography>
                 </Box>
@@ -718,7 +722,7 @@ export const HomePage: React.FC = () => {
                   currentAddonObjects.map((addon) => (
                     <Box key={addon.id} sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
                       <Typography variant="caption" sx={{ color: '#44403C' }}>• {addon.name}</Typography>
-                      <Typography variant="caption" sx={{ color: '#78716C' }}>${addon.price.toFixed(2)}</Typography>
+                      <Typography variant="caption" sx={{ color: '#78716C' }}>{currency} {addon.price.toFixed(2)}</Typography>
                     </Box>
                   ))
                 )}
@@ -744,7 +748,7 @@ export const HomePage: React.FC = () => {
                     Curation Total:
                   </Typography>
                   <Typography variant="h5" sx={{ fontFamily: '"Cormorant Garamond", serif', fontWeight: 700, color: '#B89758' }}>
-                    ${customBoxTotal.toFixed(2)}
+                    {currency} {customBoxTotal.toFixed(2)}
                   </Typography>
                 </Box>
               </Box>

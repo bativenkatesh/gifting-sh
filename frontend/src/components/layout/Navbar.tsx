@@ -26,10 +26,12 @@ import {
 } from '@mui/icons-material';
 import { useCart } from '../../context/CartContext';
 import { useAuth } from '../../context/AuthContext';
+import { useStoreCurrency } from '../../context/StoreSettings';
 
 export const Navbar: React.FC = () => {
   const { totalItems, openCart } = useCart();
   const { user, logout } = useAuth();
+  const currency = useStoreCurrency();
   const navigate = useNavigate();
   const location = useLocation();
   const theme = useTheme();
@@ -89,7 +91,7 @@ export const Navbar: React.FC = () => {
           borderBottom: '1px solid rgba(184, 151, 88, 0.3)',
         }}
       >
-        Complimentary White-Glove Courier & Hand-Poured Wax Seal on All Heirloom Curations
+        Thoughtful finishing details with every gifting curation
       </Box>
 
       {/* Main Luxury Navigation */}
@@ -220,7 +222,7 @@ export const Navbar: React.FC = () => {
                     display: { xs: 'none', lg: 'block' },
                   }}
                 >
-                  USD ($)
+                  {currency}
                 </Typography>
               )}
 
@@ -270,6 +272,23 @@ export const Navbar: React.FC = () => {
                         {user.email}
                       </Typography>
                     </Box>
+                    <ListItemButton
+                      onClick={() => {
+                        setAccountAnchor(null);
+                        navigate('/account/orders');
+                      }}
+                      sx={{ py: 1 }}
+                    >
+                      <Typography sx={{ fontFamily: '"Cinzel", serif', fontSize: '0.75rem', letterSpacing: '0.1em' }}>
+                        My Orders
+                      </Typography>
+                    </ListItemButton>
+                    <ListItemButton onClick={() => { setAccountAnchor(null); navigate('/account/wishlist'); }} sx={{ py: 1 }}>
+                      <Typography sx={{ fontFamily: '"Cinzel", serif', fontSize: '0.75rem', letterSpacing: '0.1em' }}>Saved Gifts</Typography>
+                    </ListItemButton>
+                    <ListItemButton onClick={() => { setAccountAnchor(null); navigate('/account/addresses'); }} sx={{ py: 1 }}>
+                      <Typography sx={{ fontFamily: '"Cinzel", serif', fontSize: '0.75rem', letterSpacing: '0.1em' }}>Delivery Addresses</Typography>
+                    </ListItemButton>
                     <ListItemButton
                       onClick={() => {
                         setAccountAnchor(null);
@@ -396,6 +415,9 @@ export const Navbar: React.FC = () => {
             <Box>
               <Typography variant="body2" sx={{ fontWeight: 600 }}>{user.name}</Typography>
               <Typography variant="caption" sx={{ color: '#78716C' }}>{user.email}</Typography>
+              <Button fullWidth onClick={() => { setMobileMenuOpen(false); navigate('/account/orders'); }} sx={{ mt: 1 }}>My orders</Button>
+              <Button fullWidth onClick={() => { setMobileMenuOpen(false); navigate('/account/wishlist'); }}>Saved gifts</Button>
+              <Button fullWidth onClick={() => { setMobileMenuOpen(false); navigate('/account/addresses'); }}>Delivery addresses</Button>
               <Button
                 fullWidth
                 variant="outlined"

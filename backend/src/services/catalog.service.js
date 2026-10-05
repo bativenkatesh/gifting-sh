@@ -119,6 +119,22 @@ const catalogProducts = [
     badge: 'Hand-Carved',
   },
 ];
+const { databaseEnabled, getRecord, listRecords, saveRecord } = require('./commerce-record.service');
+const { createHash } = require('node:crypto');
+
+const customBoxOptions = {
+  'linen-cream': { name: 'Signature Ivory Linen Box', price: 25, image: '/empty_box.jpg', material: 'Belgian Linen & Rigid Bookbinder Board' },
+  'obsidian-black': { name: 'Lacquered Obsidian Keepsake Box', price: 45, image: '/hero_gifting.jpg', material: 'Hand-Polished Black Piano Lacquer & Brass Hinges' },
+  'forest-velvet': { name: 'Vintage Forest Velvet Chest', price: 40, image: '/spa_box.jpg', material: 'Plush Emerald Velvet & Gilded Clasp' },
+};
+const customBoxAddons = {
+  'b-1': { name: 'Lavender & Herb Smudge Bundle', price: 18 },
+  'b-2': { name: 'Raw Wildflower Honey & Dipper', price: 24 },
+  'b-3': { name: 'French Salted Caramel Shortbread', price: 22 },
+  'b-4': { name: 'Organic Cold-Pressed Olive Soap', price: 16 },
+  'b-5': { name: 'Solid Brass Tea Strainer', price: 34 },
+  'b-6': { name: 'Mulberry Silk Sleep Mask', price: 42 },
+};
 
 function normalizeProduct(product) {
   return {
@@ -129,26 +145,73 @@ function normalizeProduct(product) {
   };
 }
 
-function getCatalogProducts() {
-  return catalogProducts.filter((product) => product.status !== 'archived').map(normalizeProduct);
+function createCustomBoxProduct({ boxId, addonIds = [] } = {}) {
+  const box = customBoxOptions[boxId];
+  if (!Array.isArray(addonIds)) {
+    const error = new Error('Choose a valid box and valid bespoke additions.');
+    error.statusCode = 400;
+    throw error;
+  }
+  const normalizedAddonIds = [...new Set(addonIds)];
+  if (!box || normalizedAddonIds.some((id) => !customBoxAddons[id])) {
+    const error = new Error('Choose a valid box and valid bespoke additions.');
+    error.statusCode = 400;
+    throw error;
+  }
+  const addons = normalizedAddonIds.map((id) => customBoxAddons[id]);
+  const configuration = JSON.stringify({ boxId, addonIds: normalizedAddonIds.sort() });
+  const id = `custom-box-${createHash('sha256').update(configuration).digest('hex').slice(0, 16)}`;
+  return {
+    id,
+    name: `Bespoke ${box.name}`,
+    slug: id,
+    tagline: `${addons.length} curated additions with hand-tied ribbon and wax seal`,
+    description: `Bespoke parcel crafted in ${box.material}.`,
+    price: box.price + addons.reduce((sum, addon) => sum + addon.price, 0),
+    category: 'Heirloom Boxes',
+    occasion: 'Milestone Celebrations',
+    image: box.image,
+    status: 'active',
+    stockQuantity: 0,
+    lowStockThreshold: 0,
+    sku: id.toUpperCase(),
+    provenance: 'Hand-assembled to order',
+    contents: addons.map((addon) => addon.name),
+    isCustomBox: true,
+  };
 }
 
-function findProductById(productId) {
-  const product = catalogProducts.find((entry) => entry.id === productId);
+async function getCatalogProducts() {
+  let products = databaseEnabled ? await listRecords('product') : catalogProducts;
+  if (databaseEnabled && products.length === 0) {
+    for (const product of catalogProducts) await saveRecord('product', product.id, product);
+    products = [...catalogProducts];
+  }
+  return products.filter((product) => product.status !== 'archived').map(normalizeProduct);
+}
+
+async function findProductById(productId) {
+  const product = databaseEnabled
+    ? await getRecord('product', productId)
+    : catalogProducts.find((entry) => entry.id === productId);
   return product && product.status !== 'archived' ? normalizeProduct(product) : null;
 }
 
-function saveProduct(productData, productId) {
-  const existingProduct = productId
-    ? catalogProducts.find((entry) => entry.id === productId)
-    : null;
+async function saveProduct(productData, productId) {
+  const existingProduct = productId ? await findProductById(productId) : null;
   if (productId && !existingProduct) return null;
 
   const name = typeof productData.name === 'string' ? productData.name.trim() : '';
   const price = Number(productData.price);
   const stockQuantity = Number(productData.stockQuantity);
+  const image = typeof productData.image === 'string' ? productData.image.trim() : '';
   if (!name || !Number.isFinite(price) || price < 0 || !Number.isInteger(stockQuantity) || stockQuantity < 0) {
     const error = new Error('Name, a non-negative price, and a non-negative whole-number stock quantity are required.');
+    error.statusCode = 400;
+    throw error;
+  }
+  if (image.length > 4 * 1024 * 1024 || (image.startsWith('data:') && !/^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(image))) {
+    const error = new Error('Product images must be a supported image file no larger than 2 MB.');
     error.statusCode = 400;
     throw error;
   }
@@ -176,27 +239,60 @@ function saveProduct(productData, productId) {
   };
 
   if (existingProduct) {
-    Object.assign(existingProduct, candidate);
-    return normalizeProduct(existingProduct);
+    const updatedProduct = { ...existingProduct, ...candidate };
+    if (databaseEnabled) await saveRecord('product', updatedProduct.id, updatedProduct);
+    else Object.assign(existingProduct, updatedProduct);
+    return normalizeProduct(updatedProduct);
   }
 
   candidate.createdAt = new Date().toISOString();
-  catalogProducts.push(candidate);
+  if (databaseEnabled) await saveRecord('product', candidate.id, candidate);
+  else catalogProducts.push(candidate);
   return normalizeProduct(candidate);
 }
 
-function archiveProduct(productId) {
-  const product = catalogProducts.find((entry) => entry.id === productId);
+async function archiveProduct(productId) {
+  const product = await findProductById(productId);
   if (!product) return null;
   product.status = 'archived';
   product.updatedAt = new Date().toISOString();
+  if (databaseEnabled) await saveRecord('product', product.id, product);
+  else Object.assign(catalogProducts.find((entry) => entry.id === productId), product);
   return normalizeProduct(product);
 }
 
-function reserveProductStock(items) {
+async function reserveProductStock(items) {
   const quantities = new Map();
   for (const item of items) {
+    if (String(item.productId).startsWith('custom-box-')) continue;
+    if (String(item.productId).startsWith('custom-box-')) continue;
     quantities.set(item.productId, (quantities.get(item.productId) || 0) + item.quantity);
+  }
+
+  if (databaseEnabled) {
+    const { sequelize } = require('../database');
+    const { CommerceRecord } = require('./commerce-record.service');
+    return sequelize.transaction(async (transaction) => {
+      const reservations = [];
+      for (const [productId, quantity] of quantities) {
+        const record = await CommerceRecord.findByPk(`product:${productId}`, {
+          transaction,
+          lock: transaction.LOCK.UPDATE,
+        });
+        const product = record?.value;
+        if (!product || product.status === 'archived' || product.stockQuantity < quantity) {
+          const error = new Error(`Insufficient stock for ${product?.name || productId}.`);
+          error.statusCode = 400;
+          throw error;
+        }
+        reservations.push({ product, quantity });
+      }
+      for (const { product, quantity } of reservations) {
+        product.stockQuantity -= quantity;
+        product.updatedAt = new Date().toISOString();
+        await saveRecord('product', product.id, product, transaction);
+      }
+    });
   }
 
   const reservations = [];
@@ -216,4 +312,27 @@ function reserveProductStock(items) {
   }
 }
 
-module.exports = { catalogProducts, getCatalogProducts, findProductById, saveProduct, archiveProduct, reserveProductStock };
+async function restoreProductStock(items) {
+  const quantities = new Map();
+  for (const item of items) quantities.set(item.productId, (quantities.get(item.productId) || 0) + item.quantity);
+  if (databaseEnabled) {
+    const { sequelize } = require('../database');
+    const { CommerceRecord } = require('./commerce-record.service');
+    return sequelize.transaction(async (transaction) => {
+      for (const [productId, quantity] of quantities) {
+        const record = await CommerceRecord.findByPk(`product:${productId}`, { transaction, lock: transaction.LOCK.UPDATE });
+        if (!record) continue;
+        const product = record.value;
+        product.stockQuantity += quantity;
+        product.updatedAt = new Date().toISOString();
+        await saveRecord('product', product.id, product, transaction);
+      }
+    });
+  }
+  for (const [productId, quantity] of quantities) {
+    const product = catalogProducts.find((entry) => entry.id === productId);
+    if (product) product.stockQuantity += quantity;
+  }
+}
+
+module.exports = { catalogProducts, getCatalogProducts, findProductById, createCustomBoxProduct, saveProduct, archiveProduct, reserveProductStock, restoreProductStock };

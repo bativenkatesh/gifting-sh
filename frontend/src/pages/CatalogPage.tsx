@@ -9,6 +9,7 @@ import {
   CardContent,
   Chip,
   Button,
+  IconButton,
   TextField,
   MenuItem,
   InputAdornment,
@@ -17,11 +18,14 @@ import {
   useTheme,
   useMediaQuery,
 } from '@mui/material';
-import { SearchOutlined, ShoppingBagOutlined, VisibilityOutlined } from '@mui/icons-material';
+import { Favorite, FavoriteBorder, SearchOutlined, ShoppingBagOutlined, VisibilityOutlined } from '@mui/icons-material';
 import { products as fallbackProducts } from '../data/products';
 import type { Product } from '../types';
 import { useCart } from '../context/CartContext';
 import { QuickViewModal } from '../components/catalog/QuickViewModal';
+import { useAuth } from '../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
+import { useStoreCurrency } from '../context/StoreSettings';
 
 const CATEGORIES = [
   'All Collections',
@@ -42,6 +46,9 @@ const OCCASIONS = [
 
 export const CatalogPage: React.FC = () => {
   const { addToCart } = useCart();
+  const { token } = useAuth();
+  const navigate = useNavigate();
+  const currency = useStoreCurrency();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
@@ -51,6 +58,29 @@ export const CatalogPage: React.FC = () => {
   const [sortBy, setSortBy] = useState<'curated' | 'price-asc' | 'price-desc'>('curated');
   const [quickViewProduct, setQuickViewProduct] = useState<Product | null>(null);
   const [catalogProducts, setCatalogProducts] = useState<Product[]>(fallbackProducts);
+  const [wishlistIds, setWishlistIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!token) return;
+    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+    fetch(`${apiUrl}/api/v1/account/wishlist`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((response) => response.json())
+      .then((result) => { if (result.success) setWishlistIds(result.data.products.map((product: Product) => product.id)); })
+      .catch(() => undefined);
+  }, [token]);
+
+
+  async function toggleWishlist(product: Product) {
+    if (!token) { navigate('/login'); return; }
+    const isSaved = wishlistIds.includes(product.id);
+    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+    const response = await fetch(`${apiUrl}/api/v1/account/wishlist${isSaved ? `/${encodeURIComponent(product.id)}` : ''}`, {
+      method: isSaved ? 'DELETE' : 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      ...(!isSaved ? { body: JSON.stringify({ productId: product.id }) } : {}),
+    });
+    if (response.ok) setWishlistIds((current) => isSaved ? current.filter((id) => id !== product.id) : [...current, product.id]);
+  }
 
   useEffect(() => {
     let active = true;
@@ -323,6 +353,13 @@ export const CatalogPage: React.FC = () => {
                     }}
                     onClick={() => setQuickViewProduct(product)}
                   >
+                    <IconButton
+                      aria-label={wishlistIds.includes(product.id) ? 'Remove from saved gifts' : 'Save gift'}
+                      onClick={(event) => { event.stopPropagation(); void toggleWishlist(product); }}
+                      sx={{ position: 'absolute', top: 8, right: 8, zIndex: 1, bgcolor: 'rgba(255,255,255,.92)', '&:hover': { bgcolor: '#fff' } }}
+                    >
+                      {wishlistIds.includes(product.id) ? <Favorite sx={{ color: '#9b4b4b' }} /> : <FavoriteBorder />}
+                    </IconButton>
                     <CardMedia
                       component="img"
                       image={product.image}
@@ -444,7 +481,7 @@ export const CatalogPage: React.FC = () => {
                           fontSize: '1.05rem',
                         }}
                       >
-                        ${product.price.toFixed(2)}
+                        {currency} {product.price.toFixed(2)}
                       </Typography>
 
                       <Button
